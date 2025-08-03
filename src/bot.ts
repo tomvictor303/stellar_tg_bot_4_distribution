@@ -13,11 +13,6 @@ const SENDER_SECRET = process.env.STELLAR_SENDER_SECRET!;
 const SENDER_KEYPAIR = Keypair.fromSecret(SENDER_SECRET);
 const SENDER_PUBLIC = SENDER_KEYPAIR.publicKey();
 
-// Asset setup (use XLM by default)
-const ASSET_CODE = process.env.STELLAR_ASSET_CODE || "XLM";
-const ASSET_ISSUER = process.env.STELLAR_ASSET_ISSUER || null;
-const AMOUNT = process.env.STELLAR_SEND_AMOUNT || "1"; // Default 1 XLM or 1 unit of asset
-
 // Example asset list (replace with your actual assets)
 type AssetToSend = { code: string; issuer: string | null; amount: string };
 const ASSETS_TO_SEND: AssetToSend[] = [
