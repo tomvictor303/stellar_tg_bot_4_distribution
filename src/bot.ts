@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import dotenv from "dotenv";
-import { Server, Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
+import Server, { Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
 
 dotenv.config();
 
