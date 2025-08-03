@@ -18,6 +18,14 @@ const ASSET_CODE = process.env.STELLAR_ASSET_CODE || "XLM";
 const ASSET_ISSUER = process.env.STELLAR_ASSET_ISSUER || null;
 const AMOUNT = process.env.STELLAR_SEND_AMOUNT || "1"; // Default 1 XLM or 1 unit of asset
 
+// Example asset list (replace with your actual assets)
+type AssetToSend = { code: string; issuer: string | null; amount: string };
+const ASSETS_TO_SEND: AssetToSend[] = [
+    // { code: "XLM", issuer: null, amount: "1" },
+    // { code: "USDC", issuer: "G...ISSUER1", amount: "2" },
+    // ... up to 100 per transaction
+];
+
 function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
 }
@@ -34,38 +42,48 @@ bot.on("message:text", async (ctx) => {
         await ctx.reply("❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
         return;
     }
-    await ctx.reply("⏳ Creating your claimable balance. Please wait...");
+    if (!ASSETS_TO_SEND.length) {
+        await ctx.reply("⚠️ No assets configured to send. Please update ASSETS_TO_SEND array in the code.");
+        return;
+    }
+    await ctx.reply("⏳ Creating your claimable balances. Please wait...");
     try {
-        // Load sender account
         const account = await server.loadAccount(SENDER_PUBLIC);
-        // Asset
-        const asset = (ASSET_CODE === "XLM")
-            ? Asset.native()
-            : new Asset(ASSET_CODE, ASSET_ISSUER!);
-        // Claimant
         const claimant = new Claimant(address);
-        // Build transaction
-        const tx = new TransactionBuilder(account, {
-            fee: BASE_FEE,
-            networkPassphrase: Networks.PUBLIC,
-        })
-            .addOperation(Operation.createClaimableBalance({
-                asset,
-                amount: AMOUNT,
-                claimants: [claimant],
-            }))
-            .setTimeout(180)
-            .build();
-        // Sign and submit
-        tx.sign(SENDER_KEYPAIR);
-        const result = await server.submitTransaction(tx);
+        // Split assets into chunks of 100 (Stellar's max operations per tx)
+        const chunkSize = 100;
+        const assetChunks = [];
+        for (let i = 0; i < ASSETS_TO_SEND.length; i += chunkSize) {
+            assetChunks.push(ASSETS_TO_SEND.slice(i, i + chunkSize));
+        }
+        let txHashes: string[] = [];
+        for (const chunk of assetChunks) {
+            let txBuilder = new TransactionBuilder(account, {
+                fee: BASE_FEE,
+                networkPassphrase: Networks.PUBLIC,
+            });
+            for (const assetInfo of chunk) {
+                const asset = assetInfo.code === "XLM"
+                    ? Asset.native()
+                    : new Asset(assetInfo.code, assetInfo.issuer ?? undefined);
+                txBuilder = txBuilder.addOperation(Operation.createClaimableBalance({
+                    asset,
+                    amount: assetInfo.amount,
+                    claimants: [claimant],
+                }));
+            }
+            const tx = txBuilder.setTimeout(180).build();
+            tx.sign(SENDER_KEYPAIR);
+            const result = await server.submitTransaction(tx);
+            txHashes.push(result.hash);
+        }
         await ctx.reply(
-            `✅ Claimable balance sent!\n\nTransaction: https://stellar.expert/explorer/public/tx/${result.hash}`
+            `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`
         );
     } catch (error: any) {
         console.error("Stellar error:", error);
         await ctx.reply(
-            `❌ Failed to send claimable balance. Reason: ${error?.response?.data?.extras?.result_codes?.operations || error.message}`
+            `❌ Failed to send claimable balances. Reason: ${error?.response?.data?.extras?.result_codes?.operations || error.message}`
         );
     }
 });
