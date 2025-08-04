@@ -1,6 +1,8 @@
 import { Bot } from "grammy";
 import dotenv from "dotenv";
 import Server, { Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
+import xlsx from "xlsx";
+import path from "path";
 
 dotenv.config();
 
@@ -13,13 +15,26 @@ const SENDER_SECRET = process.env.STELLAR_SENDER_SECRET!;
 const SENDER_KEYPAIR = Keypair.fromSecret(SENDER_SECRET);
 const SENDER_PUBLIC = SENDER_KEYPAIR.publicKey();
 
-// Example asset list (replace with your actual assets)
 type AssetToSend = { code: string; issuer: string | null; amount: string };
-const ASSETS_TO_SEND: AssetToSend[] = [
-    // { code: "XLM", issuer: null, amount: "1" },
-    // { code: "USDC", issuer: "G...ISSUER1", amount: "2" },
-    // ... up to 100 per transaction
-];
+
+function loadAssetsFromExcel(filePath: string): AssetToSend[] {
+    try {
+        const workbook = xlsx.readFile(filePath);
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows: any[] = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+        return rows.map(row => ({
+            code: String(row.code).trim(),
+            issuer: row.issuer ? String(row.issuer).trim() : null,
+            amount: String(row.amount).trim(),
+        })).filter(asset => asset.code && asset.amount);
+    } catch (err) {
+        console.error("Failed to load assets from Excel:", err);
+        return [];
+    }
+}
+
+const ASSETS_TO_SEND: AssetToSend[] = loadAssetsFromExcel(path.join(__dirname, "../database.xlsx"));
 
 function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
@@ -27,7 +42,7 @@ function isValidStellarAddress(address: string): boolean {
 
 bot.command("start", async (ctx) => {
     await ctx.reply(
-        "👋 Welcome! Send me your Stellar wallet address to receive a claimable balance."
+        "👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets."
     );
 });
 
@@ -38,7 +53,7 @@ bot.on("message:text", async (ctx) => {
         return;
     }
     if (!ASSETS_TO_SEND.length) {
-        await ctx.reply("⚠️ No assets configured to send. Please update ASSETS_TO_SEND array in the code.");
+        await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
         return;
     }
     await ctx.reply("⏳ Creating your claimable balances. Please wait...");
