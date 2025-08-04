@@ -30,6 +30,7 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
             issuer: row.issuer ? String(row.issuer).trim() : null,
             amount: String(row.amount ?? "0.1").trim(),
         })).filter(asset => {
+			// Now, we need to check if the asset is valid
             if (!asset.code || !asset.amount) return false;
             if (asset.issuer && !isValidStellarAddress(asset.issuer)) return false;
             return true;
@@ -41,6 +42,11 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
 }
 
 const ASSETS_TO_SEND: AssetToSend[] = loadAssetsFromExcel(path.join(__dirname, "../database.xlsx"));
+
+if (!ASSETS_TO_SEND?.length) {
+    console.error("❌ No valid assets found in database.xlsx. Please check the file and try again.");
+    process.exit(1);
+}
 
 function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
