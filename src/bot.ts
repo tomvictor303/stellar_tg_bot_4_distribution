@@ -69,6 +69,10 @@ async function logMessage(ctx: any, message: string) {
   }
 }
 
+// Cooldown map: userId -> { lastTime: number, lastAddress: string }
+const userCooldowns: Record<number, { lastTime: number, lastAddress: string }> = {};
+const COOLDOWN_MS = 60 * 1000; // 1 minute cooldown
+
 bot.command("start", async (ctx) => {
     await ctx.reply("👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets.");
 });
@@ -153,9 +157,22 @@ async function sendTransactions(operations: any[], ctx: any, target_address: str
 
 bot.on("message:text", async (ctx) => {
     const address = ctx.message.text.trim();
+    const userId = ctx.from?.id;
+    const now = Date.now();
     if (!isValidStellarAddress(address)) {
         await ctx.reply("❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
         return;
+    }
+    if (userId) {
+        const cooldown = userCooldowns[userId];
+        if (
+            cooldown &&
+            cooldown.lastAddress === address &&
+            now - cooldown.lastTime < COOLDOWN_MS
+        ) {
+            await ctx.reply("⏳ Please wait 1 minute before requesting again with the same address.");
+            return;
+        }
     }
     if (!ASSETS_TO_SEND.length) {
         await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
@@ -186,6 +203,9 @@ bot.on("message:text", async (ctx) => {
             txHashes = txHashes.concat(hashes);
         }
         if (txHashes.length > 0) {
+            if (userId) {
+                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+            }
             await logMessage(ctx, `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
         }
     } catch (error: any) {
