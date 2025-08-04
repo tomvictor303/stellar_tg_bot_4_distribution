@@ -29,7 +29,11 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
             code: String(row.code).trim(),
             issuer: row.issuer ? String(row.issuer).trim() : null,
             amount: String(row.amount ?? "0.1").trim(),
-        })).filter(asset => asset.code && asset.amount);
+        })).filter(asset => {
+            if (!asset.code || !asset.amount) return false;
+            if (asset.issuer && !isValidStellarAddress(asset.issuer)) return false;
+            return true;
+        });
     } catch (err) {
         console.error("❌ Failed to load assets from Excel:", err);
         return [];
