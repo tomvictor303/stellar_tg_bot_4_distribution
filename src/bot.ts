@@ -28,7 +28,7 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
         return rows.map(row => ({
             code: String(row.code).trim(),
             issuer: row.issuer ? String(row.issuer).trim() : null,
-            amount: String(row.amount).trim(),
+            amount: String(row.amount ?? "0.1").trim(),
         })).filter(asset => asset.code && asset.amount);
     } catch (err) {
         console.error("Failed to load assets from Excel:", err);
