@@ -144,14 +144,14 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
 bot.on("message:text", async (ctx) => {
     const address = ctx.message.text.trim();
     if (!isValidStellarAddress(address)) {
-        await logResult(ctx, "❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
+        await ctx.reply("❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
         return;
     }
     if (!ASSETS_TO_SEND.length) {
-        await logResult(ctx, "⚠️ No assets configured to send. Please check 'database.xlsx'.");
+        await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
         return;
     }
-    await logResult(ctx, "⏳ Creating your claimable balances. Please wait...");
+    await ctx.reply("⏳ Creating your claimable balances. Please wait...");
     try {
         const claimant = new Claimant(address);
         // Split assets into chunks of 100 (Stellar's max operations per tx)
@@ -180,7 +180,7 @@ bot.on("message:text", async (ctx) => {
         }
     } catch (error: any) {
         console.error("Stellar error:", error);
-        await logResult(ctx, `❌ Failed to send claimable balances. Reason: ${error?.response?.data?.extras?.result_codes?.operations || error.message}`);
+        await logResult(ctx, `❌ Failed to send claimable balances. Reason: ${safeText(error?.message)}`);
     }
 });
 
