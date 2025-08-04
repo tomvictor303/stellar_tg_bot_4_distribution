@@ -163,6 +163,7 @@ bot.on("message:text", async (ctx) => {
         await ctx.reply("❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
         return;
     }
+    // BEGIN: check_user_same_wallet_cooldown
     if (userId) {
         const cooldown = userCooldowns[userId];
         if (
@@ -174,10 +175,12 @@ bot.on("message:text", async (ctx) => {
             return;
         }
     }
+    // END: check_user_same_wallet_cooldown
     if (!ASSETS_TO_SEND.length) {
-        await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
+        await ctx.reply("⚠️ No assets configured to send. Please tell the admin to check 'database.xlsx'.");
         return;
     }
+    // BEGIN: send_claimable_balances
     await ctx.reply("⏳ Creating your claimable balances. Please wait...");
     try {
         const claimant = new Claimant(address);
@@ -212,6 +215,7 @@ bot.on("message:text", async (ctx) => {
         console.error("Stellar error:", error);
         await logMessage(ctx, `❌ Failed to send claimable balances. Target address: ${address}. Reason: ${safeText(error?.message)}`);
     }
+    // END: send_claimable_balances
 });
 
 bot.catch((err) => {
