@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import Server, { Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
 import xlsx from "xlsx";
 import path from "path";
+import util from "util";
+const sleep = util.promisify(setTimeout);
 
 dotenv.config();
 
@@ -46,6 +48,84 @@ bot.command("start", async (ctx) => {
     );
 });
 
+async function sendTransactions(operations: any[], ctx: any, retryCount = 0, maxRetries = 5): Promise<string[]> {
+    if (operations.length === 0) return [];
+    if (retryCount >= maxRetries) {
+        await ctx.reply("❌ Max retries reached. Aborting transaction.");
+        return [];
+    }
+    try {
+        const account = await server.loadAccount(SENDER_PUBLIC);
+        let txBuilder = new TransactionBuilder(account, {
+            fee: BASE_FEE,
+            networkPassphrase: Networks.PUBLIC,
+        });
+        for (const op of operations) {
+            txBuilder = txBuilder.addOperation(op);
+        }
+        const tx = txBuilder.setTimeout(180).build();
+        tx.sign(SENDER_KEYPAIR);
+        const result = await server.submitTransaction(tx);
+        return [result.hash];
+    } catch (e: any) {
+        // Network error: 504 Gateway Timeout
+        if (e.status === 504) {
+            await ctx.reply("504 Gateway Timeout. Retrying...");
+            await sleep(5000);
+            return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+        }
+        // Transaction result codes
+        const extras = e?.response?.data?.extras;
+        const resultCodes = extras?.result_codes;
+        if (resultCodes) {
+            // Bad sequence number
+            if (resultCodes.transaction === "tx_bad_seq") {
+                await ctx.reply("Bad sequence number. Retrying...");
+                await sleep(1000);
+                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+            }
+            // Transaction too late
+            if (resultCodes.transaction === "tx_too_late") {
+                await ctx.reply("Transaction timeout. Retrying...");
+                await sleep(1000);
+                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+            }
+            // Insufficient fee
+            if (resultCodes.transaction === "tx_insufficient_fee") {
+                await ctx.reply("Gas fee is too high now. Retrying after 5 seconds...");
+                await sleep(5000);
+                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+            }
+            // Transaction failed with operation errors
+            if (resultCodes.transaction === "tx_failed" && Array.isArray(resultCodes.operations) && resultCodes.operations.length > 0) {
+                const ops = resultCodes.operations;
+                // Remove all op_no_trust operations and retry the rest
+                if (ops.includes("op_no_trust")) {
+                    const indexes = ops.map((v: string, i: number) => v === "op_no_trust" ? i : -1).filter((i: number) => i !== -1);
+                    for (const index of indexes.sort((a: number, b: number) => b - a)) {
+                        operations.splice(index, 1);
+                    }
+                    if (operations.length > 0) {
+                        await ctx.reply("Some receivers have not set a trustline. Retrying remaining operations...");
+                        return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+                    } else {
+                        await ctx.reply("Transaction failed: All receiver accounts did not set trustline with asset.");
+                        return [];
+                    }
+                } else if (ops.includes("op_underfunded")) {
+                    await ctx.reply("Transaction failed: Token amount is insufficient in distribution account.");
+                    return [];
+                } else {
+                    await ctx.reply(`Transaction failed: ${e}`);
+                    return [];
+                }
+            }
+        }
+        await ctx.reply(`Transaction failed: ${e}`);
+        return [];
+    }
+}
+
 bot.on("message:text", async (ctx) => {
     const address = ctx.message.text.trim();
     if (!isValidStellarAddress(address)) {
@@ -53,12 +133,11 @@ bot.on("message:text", async (ctx) => {
         return;
     }
     if (!ASSETS_TO_SEND.length) {
-        await ctx.reply("⚠️ No assets configured to send. Please tell administrator about this.");
+        await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
         return;
     }
     await ctx.reply("⏳ Creating your claimable balances. Please wait...");
     try {
-        const account = await server.loadAccount(SENDER_PUBLIC);
         const claimant = new Claimant(address);
         // Split assets into chunks of 100 (Stellar's max operations per tx)
         const chunkSize = 100;
@@ -68,28 +147,24 @@ bot.on("message:text", async (ctx) => {
         }
         let txHashes: string[] = [];
         for (const chunk of assetChunks) {
-            let txBuilder = new TransactionBuilder(account, {
-                fee: BASE_FEE,
-                networkPassphrase: Networks.PUBLIC,
-            });
-            for (const assetInfo of chunk) {
+            const operations = chunk.map(assetInfo => {
                 const asset = assetInfo.code === "XLM"
                     ? Asset.native()
                     : new Asset(assetInfo.code, assetInfo.issuer ?? undefined);
-                txBuilder = txBuilder.addOperation(Operation.createClaimableBalance({
+                return Operation.createClaimableBalance({
                     asset,
                     amount: assetInfo.amount,
                     claimants: [claimant],
-                }));
-            }
-            const tx = txBuilder.setTimeout(180).build();
-            tx.sign(SENDER_KEYPAIR);
-            const result = await server.submitTransaction(tx);
-            txHashes.push(result.hash);
+                });
+            });
+            const hashes = await sendTransactions(operations, ctx);
+            txHashes = txHashes.concat(hashes);
         }
-        await ctx.reply(
-            `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`
-        );
+        if (txHashes.length > 0) {
+            await ctx.reply(
+                `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`
+            );
+        }
     } catch (error: any) {
         console.error("Stellar error:", error);
         await ctx.reply(
