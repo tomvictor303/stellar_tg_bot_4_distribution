@@ -60,7 +60,7 @@ async function logResult(ctx: any, message: string) {
 }
 
 bot.command("start", async (ctx) => {
-    await logResult(ctx, "👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets.");
+    await ctx.reply("👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets.");
 });
 
 async function sendTransactions(operations: any[], ctx: any, retryCount = 0, maxRetries = 5): Promise<string[]> {
