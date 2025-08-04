@@ -42,6 +42,15 @@ function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
 }
 
+function safeText(e: any): string {
+    const secret = process.env.STELLAR_SENDER_SECRET;
+    let text = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
+    if (secret) {
+        text = text.split(secret).join('[SECRET]');
+    }
+    return text;
+}
+
 bot.command("start", async (ctx) => {
     await ctx.reply(
         "👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets."
@@ -116,12 +125,12 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
                     await ctx.reply("Transaction failed: Token amount is insufficient in distribution account.");
                     return [];
                 } else {
-                    await ctx.reply(`Transaction failed: ${e}`);
+                    await ctx.reply(`Transaction failed: ${safeText(e)}`);
                     return [];
                 }
             }
         }
-        await ctx.reply(`Transaction failed: ${e}`);
+        await ctx.reply(`Transaction failed: ${safeText(e)}`);
         return [];
     }
 }
