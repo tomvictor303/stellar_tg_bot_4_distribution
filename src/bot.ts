@@ -53,7 +53,7 @@ bot.on("message:text", async (ctx) => {
         return;
     }
     if (!ASSETS_TO_SEND.length) {
-        await ctx.reply("⚠️ No assets configured to send. Please check 'database.xlsx'.");
+        await ctx.reply("⚠️ No assets configured to send. Please tell administrator about this.");
         return;
     }
     await ctx.reply("⏳ Creating your claimable balances. Please wait...");
