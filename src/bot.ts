@@ -131,12 +131,12 @@ async function sendTransactions(operations: any[], ctx: any, target_address: str
                     await logMessage(ctx, "Transaction failed: Asset amount is insufficient in distribution account.");
                     return [];
                 } else {
-                    await logMessage(ctx, `Transaction failed: ${safeText(e)}`);
+                    await logMessage(ctx, `Transaction failed. Target address: ${target_address}. Reason: ${safeText(e)}`);
                     return [];
                 }
             }
         }
-        await logMessage(ctx, `Transaction failed: ${safeText(e)}`);
+        await logMessage(ctx, `Transaction failed. Target address: ${target_address}. Reason: ${safeText(e)}`);
         return [];
     }
 }
@@ -180,7 +180,7 @@ bot.on("message:text", async (ctx) => {
         }
     } catch (error: any) {
         console.error("Stellar error:", error);
-        await logMessage(ctx, `❌ Failed to send claimable balances. Reason: ${safeText(error?.message)}`);
+        await logMessage(ctx, `❌ Failed to send claimable balances. Target address: ${address}. Reason: ${safeText(error?.message)}`);
     }
 });
 
