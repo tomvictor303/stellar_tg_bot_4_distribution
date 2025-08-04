@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import dotenv from "dotenv";
-import Server, { Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
+import { Horizon, Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
 import xlsx from "xlsx";
 import path from "path";
 import util from "util";
@@ -13,7 +13,7 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
 // Stellar setup
 const HORIZON_URL = process.env.STELLAR_HORIZON_URL || "https://horizon.stellar.org";
 const SENDER_SECRET = process.env.STELLAR_SENDER_SECRET!;
-const server = new Server(HORIZON_URL);
+const server = new Horizon.Server(HORIZON_URL);
 const SENDER_KEYPAIR = Keypair.fromSecret(SENDER_SECRET);
 const SENDER_PUBLIC = SENDER_KEYPAIR.publicKey();
 
