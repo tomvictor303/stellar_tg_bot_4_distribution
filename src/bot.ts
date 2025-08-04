@@ -51,7 +51,7 @@ function safeText(e: any): string {
     return text;
 }
 
-async function logResult(ctx: any, message: string) {
+async function logMessage(ctx: any, message: string) {
   console.log(message);
   // Optionally, you can also reply to the user here:
   if (ctx?.reply) {
@@ -66,7 +66,7 @@ bot.command("start", async (ctx) => {
 async function sendTransactions(operations: any[], ctx: any, retryCount = 0, maxRetries = 5): Promise<string[]> {
     if (operations.length === 0) return [];
     if (retryCount >= maxRetries) {
-        await logResult(ctx, "❌ Max retries reached. Aborting transaction.");
+        await ctx.reply("❌ Max retries reached. Aborting transaction.");
         return [];
     }
     try {
@@ -85,7 +85,7 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
     } catch (e: any) {
         // Network error: 504 Gateway Timeout
         if (e.status === 504) {
-            await logResult(ctx, "504 Gateway Timeout. Retrying...");
+            await ctx.reply("504 Gateway Timeout. Retrying...");
             await sleep(5000);
             return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
         }
@@ -95,19 +95,19 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
         if (resultCodes) {
             // Bad sequence number
             if (resultCodes.transaction === "tx_bad_seq") {
-                await logResult(ctx, "Bad sequence number. Retrying...");
+                await ctx.reply("Bad sequence number. Retrying...");
                 await sleep(1000);
                 return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
             }
             // Transaction too late
             if (resultCodes.transaction === "tx_too_late") {
-                await logResult(ctx, "Transaction timeout. Retrying...");
+                await ctx.reply("Transaction timeout. Retrying...");
                 await sleep(1000);
                 return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
             }
             // Insufficient fee
             if (resultCodes.transaction === "tx_insufficient_fee") {
-                await logResult(ctx, "Gas fee is too high now. Retrying after 5 seconds...");
+                await ctx.reply("Gas fee is too high now. Retrying after 5 seconds...");
                 await sleep(5000);
                 return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
             }
@@ -121,22 +121,22 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
                         operations.splice(index, 1);
                     }
                     if (operations.length > 0) {
-                        await logResult(ctx, "Some receivers have not set a trustline. Retrying remaining operations...");
+                        await ctx.reply("Your wallet has not set a trustline. Retrying remaining operations...");
                         return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
                     } else {
-                        await logResult(ctx, "Transaction failed: All receiver accounts did not set trustline with asset.");
+                        await ctx.reply("Transaction failed: Your wallet did not set trustline with asset.");
                         return [];
                     }
                 } else if (ops.includes("op_underfunded")) {
-                    await logResult(ctx, "Transaction failed: Token amount is insufficient in distribution account.");
+                    await logMessage(ctx, "Transaction failed: Asset amount is insufficient in distribution account.");
                     return [];
                 } else {
-                    await logResult(ctx, `Transaction failed: ${safeText(e)}`);
+                    await logMessage(ctx, `Transaction failed: ${safeText(e)}`);
                     return [];
                 }
             }
         }
-        await logResult(ctx, `Transaction failed: ${safeText(e)}`);
+        await logMessage(ctx, `Transaction failed: ${safeText(e)}`);
         return [];
     }
 }
@@ -176,11 +176,11 @@ bot.on("message:text", async (ctx) => {
             txHashes = txHashes.concat(hashes);
         }
         if (txHashes.length > 0) {
-            await logResult(ctx, `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
+            await logMessage(ctx, `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
         }
     } catch (error: any) {
         console.error("Stellar error:", error);
-        await logResult(ctx, `❌ Failed to send claimable balances. Reason: ${safeText(error?.message)}`);
+        await logMessage(ctx, `❌ Failed to send claimable balances. Reason: ${safeText(error?.message)}`);
     }
 });
 
