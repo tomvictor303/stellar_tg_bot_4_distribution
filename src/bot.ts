@@ -63,7 +63,7 @@ bot.command("start", async (ctx) => {
     await ctx.reply("👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets.");
 });
 
-async function sendTransactions(operations: any[], ctx: any, retryCount = 0, maxRetries = 5): Promise<string[]> {
+async function sendTransactions(operations: any[], ctx: any, target_address: string, retryCount = 0, maxRetries = 5): Promise<string[]> {
     if (operations.length === 0) return [];
     if (retryCount >= maxRetries) {
         await ctx.reply("❌ Max retries reached. Aborting transaction.");
@@ -87,7 +87,7 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
         if (e.status === 504) {
             await ctx.reply("504 Gateway Timeout. Retrying...");
             await sleep(5000);
-            return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+            return sendTransactions(operations, ctx, target_address, retryCount + 1, maxRetries);
         }
         // Transaction result codes
         const extras = e?.response?.data?.extras;
@@ -97,19 +97,19 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
             if (resultCodes.transaction === "tx_bad_seq") {
                 await ctx.reply("Bad sequence number. Retrying...");
                 await sleep(1000);
-                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+                return sendTransactions(operations, ctx, target_address, retryCount + 1, maxRetries);
             }
             // Transaction too late
             if (resultCodes.transaction === "tx_too_late") {
                 await ctx.reply("Transaction timeout. Retrying...");
                 await sleep(1000);
-                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+                return sendTransactions(operations, ctx, target_address, retryCount + 1, maxRetries);
             }
             // Insufficient fee
             if (resultCodes.transaction === "tx_insufficient_fee") {
                 await ctx.reply("Gas fee is too high now. Retrying after 5 seconds...");
                 await sleep(5000);
-                return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+                return sendTransactions(operations, ctx, target_address, retryCount + 1, maxRetries);
             }
             // Transaction failed with operation errors
             if (resultCodes.transaction === "tx_failed" && Array.isArray(resultCodes.operations) && resultCodes.operations.length > 0) {
@@ -122,7 +122,7 @@ async function sendTransactions(operations: any[], ctx: any, retryCount = 0, max
                     }
                     if (operations.length > 0) {
                         await ctx.reply("Your wallet has not set a trustline. Retrying remaining operations...");
-                        return sendTransactions(operations, ctx, retryCount + 1, maxRetries);
+                        return sendTransactions(operations, ctx, target_address, retryCount + 1, maxRetries);
                     } else {
                         await ctx.reply("Transaction failed: Your wallet did not set trustline with asset.");
                         return [];
@@ -172,7 +172,7 @@ bot.on("message:text", async (ctx) => {
                     claimants: [claimant],
                 });
             });
-            const hashes = await sendTransactions(operations, ctx);
+            const hashes = await sendTransactions(operations, ctx, address);
             txHashes = txHashes.concat(hashes);
         }
         if (txHashes.length > 0) {
