@@ -25,11 +25,14 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const rows: any[] = xlsx.utils.sheet_to_json(sheet, { defval: "" });
-        return rows.map(row => ({
-            code: String(row.code).trim(),
-            issuer: row.issuer ? String(row.issuer).trim() : null,
-            amount: String(row.amount ?? "0.1").trim(),
-        })).filter(asset => {
+        return rows.map(row => {
+            const code = String(row.code ?? "").replace(/\s+/g, "");
+            const issuerRaw = row.issuer != null ? String(row.issuer) : "";
+            const issuerStripped = issuerRaw.replace(/\s+/g, "");
+            const issuer = issuerStripped ? issuerStripped : null;
+            const amount = String(row.amount ?? "0.1").trim();
+            return { code, issuer, amount };
+        }).filter(asset => {
 			// Now, we need to check if the asset is valid
             if (!asset.code || !asset.amount) return false;
             if (asset.issuer && !isValidStellarAddress(asset.issuer)) return false;
