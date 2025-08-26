@@ -55,6 +55,35 @@ function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
 }
 
+// Check once at startup that the distributor account has trustlines for all non-native assets
+async function checkAssetsTrustline(): Promise<void> {
+    const account = await server.loadAccount(SENDER_PUBLIC);
+    const balances = account.balances || [];
+    // Build a set of unique asset identifiers to check (code:issuer)
+    const toCheck = new Map<string, { code: string; issuer: string }>();
+    for (const a of ASSETS_TO_SEND) {
+        if (a.code === "XLM") continue; // native asset does not require trustline
+        if (!a.issuer) continue; // skip if issuer missing (invalid input would have been filtered earlier)
+        const key = `${a.code}:${a.issuer}`;
+        if (!toCheck.has(key)) toCheck.set(key, { code: a.code, issuer: a.issuer });
+    }
+    const missing: { code: string; issuer: string }[] = [];
+    for (const { code, issuer } of toCheck.values()) {
+        const found = balances.some((b: any) => b.asset_code === code && b.asset_issuer === issuer);
+        if (!found) missing.push({ code, issuer });
+    }
+    if (missing.length > 0) {
+        console.error("❌ Distributor account is missing trustlines for the following assets:");
+        for (const m of missing) {
+            console.error(` - ${m.code}:${m.issuer}`);
+        }
+        console.error("Please add these trustlines to the distributor account and restart.");
+        process.exit(1);
+    } else {
+        console.log("✅ Distributor account has trustlines for all required assets.");
+    }
+}
+
 function safeText(e: any): string {
     const secret = process.env.STELLAR_SENDER_SECRET;
     let text = typeof e === 'string' ? e : (e?.message || JSON.stringify(e));
@@ -225,4 +254,12 @@ bot.catch((err) => {
     console.error("Error in bot:", err);
 });
 
-bot.start();
+(async function bootstrap() {
+    try {
+        await checkAssetsTrustline(); // one-time startup check
+        bot.start();
+    } catch (err) {
+        console.error("Startup error:", err);
+        process.exit(1);
+    }
+})();
