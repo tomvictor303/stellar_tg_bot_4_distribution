@@ -74,9 +74,11 @@ async function checkAssetsTrustline(): Promise<void> {
     }
     if (missing.length > 0) {
         console.error("❌ Distributor account is missing trustlines for the following assets:");
+        console.log("")
         for (const m of missing) {
             console.error(` - ${m.code}:${m.issuer}`);
         }
+        console.log("")
         console.error("Please add these trustlines to the distributor account and restart.");
         console.error("If you already have the trustlines, please check if the balances are correct in the distributor account.");
         process.exit(1);
