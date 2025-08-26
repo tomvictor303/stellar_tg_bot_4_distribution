@@ -256,6 +256,7 @@ bot.catch((err) => {
 
 (async function bootstrap() {
     try {
+        console.log("⏳ Please wait while we check if the distributor account has trustlines for all assets in database.xlsx...");
         await checkAssetsTrustline(); // one-time startup check
         bot.start();
     } catch (err) {
