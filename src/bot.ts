@@ -33,6 +33,8 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
             const amount = String(row.amount ?? "0.1").trim();
             return { code, issuer, amount };
         }).filter(asset => {
+            const isNative = asset.code.toUpperCase() === "XLM" && (asset.issuer?.toLowerCase() === "native");
+            if (isNative) return true; // native asset is valid
 			// Now, we need to check if the asset is valid
             if (!asset.code || !asset.amount) return false;
             if (asset.issuer && !isValidStellarAddress(asset.issuer)) return false;
@@ -62,7 +64,8 @@ async function checkAssetsTrustline(): Promise<void> {
     // Build a set of unique asset identifiers to check (code:issuer)
     const toCheck = new Map<string, { code: string; issuer: string }>();
     for (const a of ASSETS_TO_SEND) {
-        if (a.code === "XLM") continue; // native asset does not require trustline
+        const isNative = a.code.toUpperCase() === "XLM" && (a.issuer?.toLowerCase() === "native");
+        if (isNative) continue; // native asset does not require trustline
         if (!a.issuer) continue; // skip if issuer missing (invalid input would have been filtered earlier)
         const key = `${a.code}:${a.issuer}`;
         if (!toCheck.has(key)) toCheck.set(key, { code: a.code, issuer: a.issuer });
@@ -228,7 +231,8 @@ bot.on("message:text", async (ctx) => {
         let txHashes: string[] = [];
         for (const chunk of assetChunks) {
             const operations = chunk.map(assetInfo => {
-                const asset = assetInfo.code === "XLM"
+                const isNative = assetInfo.code.toUpperCase() === "XLM" && (assetInfo.issuer?.toLowerCase() === "native");
+                const asset = isNative
                     ? Asset.native()
                     : new Asset(assetInfo.code, assetInfo.issuer ?? undefined);
                 return Operation.createClaimableBalance({
