@@ -126,8 +126,9 @@ async function logMessage(ctx: any, message: string) {
   }
 }
 
-// Cooldown map: userId -> { lastTime: number, lastAddress: string }
-const userCooldowns: Record<number, { lastTime: number, lastAddress: string }> = {};
+// Cooldown maps
+const mainCooldowns: Record<number, { lastTime: number, lastAddress: string }> = {};
+const altCooldowns: Record<number, { lastTime: number, lastAddress: string }> = {};
 const COOLDOWN_MS = 60 * 1000; // 1 minute cooldown
 
 // Simple in-memory state to remember a user's last provided address
@@ -143,14 +144,6 @@ bot.on("callback_query:data", async (ctx) => {
     const address = userId ? userLastAddress[userId] : undefined;
     const mainAsset = getMainAsset();
     const now = Date.now();
-    if (userId && address) {
-        const cooldown = userCooldowns[userId];
-        if (cooldown && cooldown.lastAddress === address && now - cooldown.lastTime < COOLDOWN_MS) {
-            await ctx.answerCallbackQuery();
-            await ctx.reply("⏳ Please wait 1 minute before requesting again with the same address.");
-            return;
-        }
-    }
     if (!address) {
         await ctx.answerCallbackQuery();
         await ctx.reply("Please send your Stellar address first.");
@@ -162,12 +155,18 @@ bot.on("callback_query:data", async (ctx) => {
             await ctx.reply("Main asset is not configured. Please contact the admin.");
             return;
         }
+        if (userId && address) {
+            const cooldown = mainCooldowns[userId];
+            if (cooldown && cooldown.lastAddress === address && now - cooldown.lastTime < COOLDOWN_MS) {
+                await ctx.answerCallbackQuery();
+                await ctx.reply("⏳ Please wait 1 minute before requesting the main asset again with the same address.");
+                return;
+            }
+        }
         await ctx.answerCallbackQuery();
         const hashes = await sendAssetsToAddress(address, [mainAsset], ctx);
         if (hashes.length) {
-            if (userId) {
-                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
-            }
+            if (userId) mainCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
             await ctx.reply(`✅ Main asset claimable balance sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
             // Offer to send all others
             const others = ALT_ASSETS.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
@@ -184,29 +183,44 @@ bot.on("callback_query:data", async (ctx) => {
             // If main asset isn't configured, just send all assets
             const hashes = await sendAssetsToAddress(address, ALT_ASSETS, ctx);
             if (hashes.length) {
-                if (userId) {
-                    userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
-                }
+                if (userId) altCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
                 await ctx.reply(`✅ Claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
             }
             return;
         }
+        if (userId && address) {
+            const cooldown = altCooldowns[userId];
+            if (cooldown && cooldown.lastAddress === address && now - cooldown.lastTime < COOLDOWN_MS) {
+                await ctx.reply("⏳ Please wait 1 minute before requesting other assets again with the same address.");
+                return;
+            }
+        }
         const others = ALT_ASSETS.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
         const hashes = await sendAssetsToAddress(address, others, ctx);
         if (hashes.length) {
-            if (userId) {
-                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
-            }
+            if (userId) altCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
             await ctx.reply(`✅ Other assets claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
         }
         return;
     }
     if (action === "send_all") {
         await ctx.answerCallbackQuery();
+        if (userId && address) {
+            const mainCd = mainCooldowns[userId];
+            const altCd = altCooldowns[userId];
+            const mainActive = mainCd && mainCd.lastAddress === address && now - mainCd.lastTime < COOLDOWN_MS;
+            const altActive = altCd && altCd.lastAddress === address && now - altCd.lastTime < COOLDOWN_MS;
+            if (mainActive || altActive) {
+                await ctx.reply("⏳ Please wait 1 minute before requesting again with the same address.");
+                return;
+            }
+        }
         const hashes = await sendAssetsToAddress(address, ALT_ASSETS, ctx);
         if (hashes.length) {
             if (userId) {
-                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+                const now2 = Date.now();
+                mainCooldowns[userId] = { lastTime: now2, lastAddress: address };
+                altCooldowns[userId] = { lastTime: now2, lastAddress: address };
             }
             await ctx.reply(`✅ Claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
         }
@@ -336,19 +350,7 @@ bot.on("message:text", async (ctx) => {
     if (userId) {
         userLastAddress[userId] = address;
     }
-    // BEGIN: check_user_same_wallet_cooldown
-    if (userId) {
-        const cooldown = userCooldowns[userId];
-        if (
-            cooldown &&
-            cooldown.lastAddress === address &&
-            now - cooldown.lastTime < COOLDOWN_MS
-        ) {
-            await ctx.reply("⏳ Please wait 1 minute before requesting again with the same address.");
-            return;
-        }
-    }
-    // END: check_user_same_wallet_cooldown
+    // No global cooldown check here; handled per-action in callbacks
     if (!ALT_ASSETS.length) {
         await ctx.reply("⚠️ No assets configured to send. Please tell the admin to check 'database.xlsx'.");
         return;
