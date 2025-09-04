@@ -75,11 +75,14 @@ function isValidStellarAddress(address: string): boolean {
 
 // Check once at startup that the distributor account has trustlines for all non-native assets
 async function checkAssetsTrustline(): Promise<void> {
+    const mainAsset = getMainAsset();
+    const allAssets = mainAsset ? [mainAsset, ...ASSETS_TO_SEND] : ASSETS_TO_SEND;
+    
     const account = await server.loadAccount(SENDER_PUBLIC);
     const balances = account.balances || [];
     // Build a set of unique asset identifiers to check (code:issuer)
     const toCheck = new Map<string, { code: string; issuer: string }>();
-    for (const a of ASSETS_TO_SEND) {
+    for (const a of allAssets) {
         const isNative = a.code.toUpperCase() === "XLM" && (a.issuer?.toLowerCase() === "native");
         if (isNative) continue; // native asset does not require trustline
         if (!a.issuer) continue; // skip if issuer missing (invalid input would have been filtered earlier)
