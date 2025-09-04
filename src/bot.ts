@@ -62,9 +62,9 @@ function loadAssetsFromExcel(filePath: string): AssetToSend[] {
     }
 }
 
-const ASSETS_TO_SEND: AssetToSend[] = loadAssetsFromExcel(path.join(__dirname, "../database.xlsx"));
+const ALT_ASSETS: AssetToSend[] = loadAssetsFromExcel(path.join(__dirname, "../database.xlsx"));
 
-if (!ASSETS_TO_SEND?.length) {
+if (!ALT_ASSETS?.length) {
     console.error("❌ No valid assets found in database.xlsx. Please check the file and try again.");
     process.exit(1);
 }
@@ -76,7 +76,7 @@ function isValidStellarAddress(address: string): boolean {
 // Check once at startup that the distributor account has trustlines for all non-native assets
 async function checkAssetsTrustline(): Promise<void> {
     const mainAsset = getMainAsset();
-    const allAssets = mainAsset ? [mainAsset, ...ASSETS_TO_SEND] : ASSETS_TO_SEND;
+    const allAssets = mainAsset ? [mainAsset, ...ALT_ASSETS] : ALT_ASSETS;
     
     const account = await server.loadAccount(SENDER_PUBLIC);
     const balances = account.balances || [];
@@ -176,7 +176,7 @@ bot.on("callback_query:data", async (ctx) => {
             }
             await ctx.reply(`✅ Main asset claimable balance sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
             // Offer to send all others
-            const others = ASSETS_TO_SEND.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
+            const others = ALT_ASSETS.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
             if (others.length) {
                 const kb = new InlineKeyboard().text("Send all other assets", "send_others");
                 await ctx.reply("Would you like to receive all other assets as well?", { reply_markup: kb });
@@ -188,7 +188,7 @@ bot.on("callback_query:data", async (ctx) => {
         await ctx.answerCallbackQuery();
         if (!mainAsset) {
             // If main asset isn't configured, just send all assets
-            const hashes = await sendAssetsToAddress(address, ASSETS_TO_SEND, ctx);
+            const hashes = await sendAssetsToAddress(address, ALT_ASSETS, ctx);
             if (hashes.length) {
                 if (userId) {
                     userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
@@ -197,7 +197,7 @@ bot.on("callback_query:data", async (ctx) => {
             }
             return;
         }
-        const others = ASSETS_TO_SEND.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
+        const others = ALT_ASSETS.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
         const hashes = await sendAssetsToAddress(address, others, ctx);
         if (hashes.length) {
             if (userId) {
@@ -209,7 +209,7 @@ bot.on("callback_query:data", async (ctx) => {
     }
     if (action === "send_all") {
         await ctx.answerCallbackQuery();
-        const hashes = await sendAssetsToAddress(address, ASSETS_TO_SEND, ctx);
+        const hashes = await sendAssetsToAddress(address, ALT_ASSETS, ctx);
         if (hashes.length) {
             if (userId) {
                 userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
@@ -355,7 +355,7 @@ bot.on("message:text", async (ctx) => {
         }
     }
     // END: check_user_same_wallet_cooldown
-    if (!ASSETS_TO_SEND.length) {
+    if (!ALT_ASSETS.length) {
         await ctx.reply("⚠️ No assets configured to send. Please tell the admin to check 'database.xlsx'.");
         return;
     }
