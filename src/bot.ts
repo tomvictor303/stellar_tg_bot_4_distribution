@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import dotenv from "dotenv";
 import { Horizon, Keypair, Asset, Networks, TransactionBuilder, Operation, Claimant, BASE_FEE } from "stellar-sdk";
 import xlsx from "xlsx";
@@ -18,6 +18,22 @@ const SENDER_KEYPAIR = Keypair.fromSecret(SENDER_SECRET);
 const SENDER_PUBLIC = SENDER_KEYPAIR.publicKey();
 
 type AssetToSend = { code: string; issuer: string | null; amount: string };
+
+// Main asset configuration from environment
+const MAIN_ASSET_CODE = process.env.MAIN_ASSET_CODE ? String(process.env.MAIN_ASSET_CODE).replace(/\s+/g, "") : undefined;
+const MAIN_ASSET_ISSUER_RAW = process.env.MAIN_ASSET_ISSUER ? String(process.env.MAIN_ASSET_ISSUER) : undefined;
+const MAIN_ASSET_ISSUER = MAIN_ASSET_ISSUER_RAW ? MAIN_ASSET_ISSUER_RAW.replace(/\s+/g, "") : undefined;
+const MAIN_ASSET_AMOUNT = process.env.MAIN_ASSET_AMOUNT ? String(process.env.MAIN_ASSET_AMOUNT).trim() : undefined;
+
+function getMainAsset(): AssetToSend | null {
+    if (!MAIN_ASSET_CODE || !MAIN_ASSET_AMOUNT) return null;
+    const issuer = MAIN_ASSET_ISSUER ?? null;
+    const isNative = MAIN_ASSET_CODE.toUpperCase() === "XLM" && (issuer?.toLowerCase() === "native");
+    if (!isNative) {
+        if (!issuer || !isValidStellarAddress(issuer)) return null;
+    }
+    return { code: MAIN_ASSET_CODE, issuer, amount: MAIN_ASSET_AMOUNT };
+}
 
 function loadAssetsFromExcel(filePath: string): AssetToSend[] {
     try {
@@ -111,8 +127,95 @@ async function logMessage(ctx: any, message: string) {
 const userCooldowns: Record<number, { lastTime: number, lastAddress: string }> = {};
 const COOLDOWN_MS = 60 * 1000; // 1 minute cooldown
 
+// Simple in-memory state to remember a user's last provided address
+const userLastAddress: Record<number, string> = {};
+
 bot.command("start", async (ctx) => {
-    await ctx.reply("👋 Welcome! Send me your Stellar wallet address to receive claimable balances for multiple assets.");
+    const mainAsset = getMainAsset();
+    const keyboard = new InlineKeyboard();
+    if (mainAsset) {
+        keyboard.text(`Send only ${mainAsset.code}`, "send_main").row();
+    }
+    keyboard.text("Send all assets", "send_all");
+    await ctx.reply("👋 Welcome! Send me your Stellar wallet address to continue.", { reply_markup: keyboard });
+});
+
+bot.on("callback_query:data", async (ctx) => {
+    const action = ctx.callbackQuery.data;
+    const userId = ctx.from?.id;
+    const address = userId ? userLastAddress[userId] : undefined;
+    const mainAsset = getMainAsset();
+    const now = Date.now();
+    if (userId && address) {
+        const cooldown = userCooldowns[userId];
+        if (cooldown && cooldown.lastAddress === address && now - cooldown.lastTime < COOLDOWN_MS) {
+            await ctx.answerCallbackQuery();
+            await ctx.reply("⏳ Please wait 1 minute before requesting again with the same address.");
+            return;
+        }
+    }
+    if (!address) {
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Please send your Stellar address first.");
+        return;
+    }
+    if (action === "send_main") {
+        if (!mainAsset) {
+            await ctx.answerCallbackQuery();
+            await ctx.reply("Main asset is not configured. Please contact the admin.");
+            return;
+        }
+        await ctx.answerCallbackQuery();
+        const hashes = await sendAssetsToAddress(address, [mainAsset], ctx);
+        if (hashes.length) {
+            if (userId) {
+                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+            }
+            await ctx.reply(`✅ Main asset claimable balance sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
+            // Offer to send all others
+            const others = ASSETS_TO_SEND.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
+            if (others.length) {
+                const kb = new InlineKeyboard().text("Send all other assets", "send_others");
+                await ctx.reply("Would you like to receive all other assets as well?", { reply_markup: kb });
+            }
+        }
+        return;
+    }
+    if (action === "send_others") {
+        await ctx.answerCallbackQuery();
+        if (!mainAsset) {
+            // If main asset isn't configured, just send all assets
+            const hashes = await sendAssetsToAddress(address, ASSETS_TO_SEND, ctx);
+            if (hashes.length) {
+                if (userId) {
+                    userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+                }
+                await ctx.reply(`✅ Claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
+            }
+            return;
+        }
+        const others = ASSETS_TO_SEND.filter(a => !(a.code === mainAsset.code && a.issuer === mainAsset.issuer));
+        const hashes = await sendAssetsToAddress(address, others, ctx);
+        if (hashes.length) {
+            if (userId) {
+                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+            }
+            await ctx.reply(`✅ Other assets claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
+        }
+        return;
+    }
+    if (action === "send_all") {
+        await ctx.answerCallbackQuery();
+        const hashes = await sendAssetsToAddress(address, ASSETS_TO_SEND, ctx);
+        if (hashes.length) {
+            if (userId) {
+                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
+            }
+            await ctx.reply(`✅ Claimable balances sent!\n\nTransactions:\n${hashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
+        }
+        return;
+    }
+    await ctx.answerCallbackQuery();
 });
 
 async function sendTransactions(operations: any[], ctx: any, target_address: string, retryCount = 0, maxRetries = 5): Promise<string[]> {
@@ -193,6 +296,38 @@ async function sendTransactions(operations: any[], ctx: any, target_address: str
     }
 }
 
+function buildOperationsForAssets(assets: AssetToSend[], claimant: Claimant) {
+    return assets.map(assetInfo => {
+        const isNative = assetInfo.code.toUpperCase() === "XLM" && (assetInfo.issuer?.toLowerCase() === "native");
+        const asset = isNative
+            ? Asset.native()
+            : new Asset(assetInfo.code, assetInfo.issuer ?? undefined);
+        return Operation.createClaimableBalance({
+            asset,
+            amount: assetInfo.amount,
+            claimants: [claimant],
+        });
+    });
+}
+
+async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: any): Promise<string[]> {
+    if (!assets.length) return [];
+    await ctx.reply("⏳ Creating your claimable balances. Please wait...");
+    const claimant = new Claimant(address);
+    const chunkSize = 100;
+    const assetChunks: AssetToSend[][] = [];
+    for (let i = 0; i < assets.length; i += chunkSize) {
+        assetChunks.push(assets.slice(i, i + chunkSize));
+    }
+    let txHashes: string[] = [];
+    for (const chunk of assetChunks) {
+        const operations = buildOperationsForAssets(chunk, claimant);
+        const hashes = await sendTransactions(operations, ctx, address);
+        txHashes = txHashes.concat(hashes);
+    }
+    return txHashes;
+}
+
 bot.on("message:text", async (ctx) => {
     const address = ctx.message.text.trim();
     const userId = ctx.from?.id;
@@ -200,6 +335,9 @@ bot.on("message:text", async (ctx) => {
     if (!isValidStellarAddress(address)) {
         await ctx.reply("❌ That doesn't look like a valid Stellar address. Please send a valid address starting with 'G'.");
         return;
+    }
+    if (userId) {
+        userLastAddress[userId] = address;
     }
     // BEGIN: check_user_same_wallet_cooldown
     if (userId) {
@@ -218,43 +356,14 @@ bot.on("message:text", async (ctx) => {
         await ctx.reply("⚠️ No assets configured to send. Please tell the admin to check 'database.xlsx'.");
         return;
     }
-    // BEGIN: send_claimable_balances
-    await ctx.reply("⏳ Creating your claimable balances. Please wait...");
-    try {
-        const claimant = new Claimant(address);
-        // Split assets into chunks of 100 (Stellar's max operations per tx)
-        const chunkSize = 100;
-        const assetChunks = [];
-        for (let i = 0; i < ASSETS_TO_SEND.length; i += chunkSize) {
-            assetChunks.push(ASSETS_TO_SEND.slice(i, i + chunkSize));
-        }
-        let txHashes: string[] = [];
-        for (const chunk of assetChunks) {
-            const operations = chunk.map(assetInfo => {
-                const isNative = assetInfo.code.toUpperCase() === "XLM" && (assetInfo.issuer?.toLowerCase() === "native");
-                const asset = isNative
-                    ? Asset.native()
-                    : new Asset(assetInfo.code, assetInfo.issuer ?? undefined);
-                return Operation.createClaimableBalance({
-                    asset,
-                    amount: assetInfo.amount,
-                    claimants: [claimant],
-                });
-            });
-            const hashes = await sendTransactions(operations, ctx, address);
-            txHashes = txHashes.concat(hashes);
-        }
-        if (txHashes.length > 0) {
-            if (userId) {
-                userCooldowns[userId] = { lastTime: Date.now(), lastAddress: address };
-            }
-            await logMessage(ctx, `✅ Claimable balances sent!\n\nTransactions:\n${txHashes.map(h => `https://stellar.expert/explorer/public/tx/${h}`).join("\n")}`);
-        }
-    } catch (error: any) {
-        console.error("Stellar error:", error);
-        await logMessage(ctx, `❌ Failed to send claimable balances. Target address: ${address}. Reason: ${safeText(error?.message)}`);
+    // Ask what to send now that we have a valid address
+    const mainAsset = getMainAsset();
+    const keyboard = new InlineKeyboard();
+    if (mainAsset) {
+        keyboard.text(`Send only ${mainAsset.code}`, "send_main").row();
     }
-    // END: send_claimable_balances
+    keyboard.text("Send all assets", "send_all");
+    await ctx.reply("✅ Address received. What would you like to claim?", { reply_markup: keyboard });
 });
 
 bot.catch((err) => {
