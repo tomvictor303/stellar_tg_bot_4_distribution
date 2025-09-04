@@ -134,13 +134,7 @@ const COOLDOWN_MS = 60 * 1000; // 1 minute cooldown
 const userLastAddress: Record<number, string> = {};
 
 bot.command("start", async (ctx) => {
-    const mainAsset = getMainAsset();
-    const keyboard = new InlineKeyboard();
-    if (mainAsset) {
-        keyboard.text(`Send only ${mainAsset.code}`, "send_main").row();
-    }
-    keyboard.text("Send all assets", "send_all");
-    await ctx.reply("👋 Welcome! Send me your Stellar wallet address to continue.", { reply_markup: keyboard });
+    await ctx.reply("👋 Welcome! Send me your Stellar wallet address to continue.");
 });
 
 bot.on("callback_query:data", async (ctx) => {
