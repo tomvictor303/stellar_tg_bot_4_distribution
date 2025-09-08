@@ -307,7 +307,18 @@ async function sendTransactions(operations: any[], ctx: any, target_address: str
     }
 }
 
-function buildOperationsForAssets(assets: AssetToSend[], claimant: Claimant) {
+function buildOperationsForAssets(assets: AssetToSend[], address: string) {
+    // Create a time-based predicate that expires after 3 days
+    const threeDaysFromNow = Math.floor(Date.now() / 1000) + (3 * 24 * 60 * 60); // 3 days in seconds
+    
+    // Primary claimant: recipient can claim within 3 days
+    const recipientPredicate = Claimant.predicateBeforeAbsoluteTime(threeDaysFromNow.toString());
+    const recipientClaimant = new Claimant(address, recipientPredicate);
+    
+    // Fallback claimant: sender can claim after 3 days (using NOT predicate)
+    const senderPredicate = Claimant.predicateNot(recipientPredicate);
+    const senderClaimant = new Claimant(SENDER_PUBLIC, senderPredicate);
+    
     return assets.map(assetInfo => {
         const isNative = assetInfo.code.toUpperCase() === "XLM" && (assetInfo.issuer?.toLowerCase() === "native");
         const asset = isNative
@@ -316,7 +327,7 @@ function buildOperationsForAssets(assets: AssetToSend[], claimant: Claimant) {
         return Operation.createClaimableBalance({
             asset,
             amount: assetInfo.amount,
-            claimants: [claimant],
+            claimants: [recipientClaimant, senderClaimant],
         });
     });
 }
@@ -324,7 +335,6 @@ function buildOperationsForAssets(assets: AssetToSend[], claimant: Claimant) {
 async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: any): Promise<string[]> {
     if (!assets.length) return [];
     await ctx.reply("⏳ Creating your claimable balances. Please wait...");
-    const claimant = new Claimant(address);
     const chunkSize = 100;
     const assetChunks: AssetToSend[][] = [];
     for (let i = 0; i < assets.length; i += chunkSize) {
@@ -332,7 +342,7 @@ async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: 
     }
     let txHashes: string[] = [];
     for (const chunk of assetChunks) {
-        const operations = buildOperationsForAssets(chunk, claimant);
+        const operations = buildOperationsForAssets(chunk, address);
         const hashes = await sendTransactions(operations, ctx, address);
         txHashes = txHashes.concat(hashes);
     }
