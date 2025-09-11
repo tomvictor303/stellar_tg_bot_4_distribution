@@ -73,31 +73,44 @@ function isValidStellarAddress(address: string): boolean {
     return /^G[A-Z2-7]{55}$/.test(address);
 }
 
-// Check once at startup that the distributor account has trustlines for all non-native assets
-async function checkAssetsTrustline(): Promise<void> {
-    const mainAsset = getMainAsset();
-    const allAssets = mainAsset ? [mainAsset, ...ALT_ASSETS] : ALT_ASSETS;
-    
-    const account = await server.loadAccount(SENDER_PUBLIC);
+// Flexible function to check if an account has trustlines for specified assets
+async function checkAssetsTrustline(publicKey: string, assetsList: AssetToSend[]): Promise<{ hasAllTrustlines: boolean; missing: { code: string; issuer: string }[] }> {
+    const account = await server.loadAccount(publicKey);
     const balances = account.balances || [];
+    
     // Build a set of unique asset identifiers to check (code:issuer)
     const toCheck = new Map<string, { code: string; issuer: string }>();
-    for (const a of allAssets) {
+    for (const a of assetsList) {
         const isNative = a.code.toUpperCase() === "XLM" && (a.issuer?.toLowerCase() === "native");
         if (isNative) continue; // native asset does not require trustline
         if (!a.issuer) continue; // skip if issuer missing (invalid input would have been filtered earlier)
         const key = `${a.code}:${a.issuer}`;
         if (!toCheck.has(key)) toCheck.set(key, { code: a.code, issuer: a.issuer });
     }
+    
     const missing: { code: string; issuer: string }[] = [];
     for (const { code, issuer } of toCheck.values()) {
         const found = balances.some((b: any) => b.asset_code === code && b.asset_issuer === issuer);
         if (!found) missing.push({ code, issuer });
     }
-    if (missing.length > 0) {
+    
+    return {
+        hasAllTrustlines: missing.length === 0,
+        missing
+    };
+}
+
+// Check that the distributor account has trustlines for all non-native assets
+async function checkDistributorTrustlines(): Promise<void> {
+    const mainAsset = getMainAsset();
+    const allAssets = mainAsset ? [mainAsset, ...ALT_ASSETS] : ALT_ASSETS;
+    
+    const result = await checkAssetsTrustline(SENDER_PUBLIC, allAssets);
+    
+    if (!result.hasAllTrustlines) {
         console.error("❌ Distributor account is missing trustlines for the following assets:");
         console.log("")
-        for (const m of missing) {
+        for (const m of result.missing) {
             console.error(` - ${m.code}:${m.issuer}`);
         }
         console.log("")
@@ -382,7 +395,7 @@ bot.catch((err) => {
 (async function bootstrap() {
     try {
         console.log("⏳ Please wait while we check if the distributor account has trustlines for all assets in database.xlsx...");
-        await checkAssetsTrustline(); // one-time startup check
+        await checkDistributorTrustlines(); // one-time startup check
         bot.start();
     } catch (err) {
         console.error("Startup error:", err);
