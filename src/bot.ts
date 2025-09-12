@@ -347,11 +347,39 @@ function buildOperationsForAssets(assets: AssetToSend[], address: string) {
 
 async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: any): Promise<string[]> {
     if (!assets.length) return [];
-    await ctx.reply("⏳ Creating your claimable balances. Please wait...");
+    
+    await ctx.reply("⏳ Checking your trustlines...");
+    
+    // Check which assets the user is missing trustlines for
+    const trustlineResult = await checkAssetsTrustline(address, assets);
+    
+    if (trustlineResult.hasAllTrustlines) {
+        await ctx.reply("❌ Sorry, you already have everything. No need to send more!");
+        return [];
+    }
+    
+    // Filter assets to only include those missing trustlines
+    const missingAssets = assets.filter(asset => {
+        const isNative = asset.code.toUpperCase() === "XLM" && (asset.issuer?.toLowerCase() === "native");
+        if (isNative) return false; // Native assets don't need trustlines
+        
+        // Check if this asset is in the missing list
+        return trustlineResult.missing.some(missing => 
+            missing.code === asset.code && missing.issuer === asset.issuer
+        );
+    });
+    
+    if (!missingAssets.length) {
+        await ctx.reply("❌ Sorry, you already have everything. No need to send more!");
+        return [];
+    }
+    
+    await ctx.reply(`⏳ Creating claimable balances for ${missingAssets.length} assets you don't have yet...`);
+    
     const chunkSize = 100;
     const assetChunks: AssetToSend[][] = [];
-    for (let i = 0; i < assets.length; i += chunkSize) {
-        assetChunks.push(assets.slice(i, i + chunkSize));
+    for (let i = 0; i < missingAssets.length; i += chunkSize) {
+        assetChunks.push(missingAssets.slice(i, i + chunkSize));
     }
     let txHashes: string[] = [];
     for (const chunk of assetChunks) {
