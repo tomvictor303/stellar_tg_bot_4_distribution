@@ -354,7 +354,7 @@ async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: 
     const trustlineResult = await checkAssetsTrustline(address, assets);
     
     if (trustlineResult.hasAllTrustlines) {
-        await ctx.reply("❌ Sorry, you already have everything. No need to send more!");
+        await ctx.reply("😊 Sorry, you already have everything. No need to send more!");
         return [];
     }
     
@@ -370,7 +370,7 @@ async function sendAssetsToAddress(address: string, assets: AssetToSend[], ctx: 
     });
     
     if (!missingAssets.length) {
-        await ctx.reply("❌ Sorry, you already have everything. No need to send more!");
+        await ctx.reply("😊 Sorry, you already have everything. No need to send more!");
         return [];
     }
     
